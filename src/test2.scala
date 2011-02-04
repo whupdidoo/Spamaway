@@ -3,8 +3,35 @@ import libsvm._
 import java.io._
 import java.util._
 
-object Test2 {
-  def main(args: Array[String]): Unit = {
+object Spamaway {
+	case class Argument(value :String)	
+	var model_file_name = "svm_model.blob"
+
+	def main(args: Array[String]): Unit = {
+		def action_by_arg(arg: Argument, params: Array[String]){
+			def read_dir(directory: String): Array[String] = {
+				var dir: File = new File(directory)
+				if(!dir.isDirectory())	{
+					throw new IllegalArgumentException(directory + " is not a directory");
+				}
+				return dir.listFiles.map(f => io.Source.fromFile(f)("iso-8859-1").toString)
+			}
+			
+			arg.value match {
+				case "train" =>
+					train(read_dir(params(0)), read_dir(params(1)))
+				case "classify" => 
+					classify(read_dir(params(0)))
+				case _ => println("Usage: spamaway [train|classify] <directory>")
+			}
+		}
+		if (args.length < 2)
+			println("Usage: spamaway train <spamdir> <hamdir>\n or spamaway classify <dir>")
+		else
+			action_by_arg(arg = Argument(args(0)), params = args.slice(1,args.size))
+	}
+	
+	def train(spam: Array[String], ham: Array[String]) {
 		var classes = Array("SPAM", "NOSPAM")
 		var numClasses = classes.length
 		var numTrainVectors = 100
@@ -19,7 +46,7 @@ object Test2 {
 			currTrainVector = new Array[svm_node](numDimensions)
 			//currTrainVector.indexes = (0 until numTrainVectors-1).toArray
 			// every second item is of the same class
-			trainVectorClasses(i) = i % 2;
+			trainVectorClasses(i) = (i % 2)*2-1
 			//currTrainVector = Array.fill(numDimensions){ var ran = java.lang.Math.random; var node = new svm_node; node.index ran.floatValue }
 			for (j <- 0 until numDimensions){
 				var ran = java.lang.Math.random
@@ -28,7 +55,7 @@ object Test2 {
 				node.value = ran.floatValue
 				currTrainVector(j) = node
 			}
-			var offset = (i % 2) * 0.9f;
+			var offset = (i % 2) * 0.9f
 			currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
 			//problem.addExample(currTrainVector, trainVectorClasses(i))
                         trainVectors(i) = currTrainVector
@@ -60,32 +87,34 @@ object Test2 {
 		var param : svm_parameter = new svm_parameter
 		// default values
 		param.svm_type = svm_parameter.C_SVC	// needs no params as i see it...
-		param.kernel_type = svm_parameter.LINEAR;	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
-		param.degree = 3;
-		param.gamma = 0;	// 1/num_features
-		param.gamma = 1.0 / numDimensions;	// width of rbf
-		param.coef0 = 0;
-		param.nu = 0.5;
-		param.cache_size = 100;
-		param.C = 1;
-		param.eps = 1e-3;
-		param.p = 0.1;
-		param.shrinking = 1;
-		param.probability = 0;
-		param.nr_weight = 0;
+		param.kernel_type = svm_parameter.LINEAR	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
+		param.degree = 3
+		param.gamma = 0	// 1/num_features
+		param.gamma = 1.0 / numDimensions	// width of rbf
+		param.coef0 = 0
+		param.nu = 0.5
+		param.cache_size = 100
+		param.C = 1
+		param.eps = 1e-3
+		param.p = 0.1
+		param.shrinking = 1
+		param.probability = 0
+		param.nr_weight = 0
 		param.weight_label = new Array[Int](0)
 		param.weight = new Array[Double](0)
-		param.kernel_type = svm_parameter.LINEAR
 
-//		var error_msg = svm.svm_check_parameter(prob,param);
-//		println(error_msg)
-//		if(error_msg.equals(null))
-//		{
-//			println("ParamCheckError: "+error_msg+"\n");
-//		}
+		var error_msg = svm.svm_check_parameter(prob, param)
+		if(error_msg != null) {
+			println("ParamCheckError: "+error_msg+"\n")
+		}
 
-		var model = svm.svm_train(prob,param);
-		//svm.svm_save_model(model_file_name,model);
+		var model = svm.svm_train(prob, param)
+		svm.svm_save_model(model_file_name, model)
+	}
+	
+	def classify(documents: Array[String]){
+		svm.svm_load_model(model_file_name)
+		println("hello")
 	}
 
 }
