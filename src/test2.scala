@@ -4,51 +4,54 @@ import java.io._
 import java.util._
 
 object Spamaway {
-	case class Argument(value :String)	
 	var model_file_name = "svm_model.blob"
-
+	var classes = Array("SPAM", "NOSPAM")
+	var numClasses = classes.length
+	var numTrainVectors = 100
+	var numFeatures = 2
+		
 	def main(args: Array[String]): Unit = {
+		def usage {
+			println("Usage: spamaway train <spamdir> <hamdir>\n or spamaway classify <dir>")
+		}
+		case class Argument(value :String)
 		def action_by_arg(arg: Argument, params: Array[String]){
 			def read_dir(directory: String): Array[String] = {
 				var dir: File = new File(directory)
-				if(!dir.isDirectory())	{
+				if(!dir.isDirectory)	{
 					throw new IllegalArgumentException(directory + " is not a directory");
 				}
-				return dir.listFiles.map(f => io.Source.fromFile(f)("iso-8859-1").toString)
+				dir.listFiles.map{f => io.Source.fromFile(f)("iso-8859-1").toString}
 			}
 			
 			arg.value match {
 				case "train" =>
+					//TODO: add scaling (!)
 					train(read_dir(params(0)), read_dir(params(1)))
 				case "classify" => 
 					classify(read_dir(params(0)))
-				case _ => println("Usage: spamaway [train|classify] <directory>")
+				case _ => usage
 			}
 		}
 		if (args.length < 2)
-			println("Usage: spamaway train <spamdir> <hamdir>\n or spamaway classify <dir>")
+			usage
 		else
 			action_by_arg(arg = Argument(args(0)), params = args.slice(1,args.size))
 	}
 	
 	def train(spam: Array[String], ham: Array[String]) {
-		var classes = Array("SPAM", "NOSPAM")
-		var numClasses = classes.length
-		var numTrainVectors = 100
-		var numDimensions = 2
 		var trainVectors : Array[Array[svm_node]] = new Array(numTrainVectors);
 		var trainVectorClasses : Array[Double] = new Array(numTrainVectors);
-		//var problem = new MutableBinaryClassificationProblemImpl[String, SparseVector](classes.getClass, numClasses)
 
 		for(i <- 0 to numTrainVectors-1)
 		{
 			var currTrainVector = trainVectors(i);
-			currTrainVector = new Array[svm_node](numDimensions)
+			currTrainVector = new Array[svm_node](numFeatures)
 			//currTrainVector.indexes = (0 until numTrainVectors-1).toArray
-			// every second item is of the same class
+			// every second item is of the same class [-1, 1]
 			trainVectorClasses(i) = (i % 2)*2-1
 			//currTrainVector = Array.fill(numDimensions){ var ran = java.lang.Math.random; var node = new svm_node; node.index ran.floatValue }
-			for (j <- 0 until numDimensions){
+			for (j <- 0 until numFeatures){
 				var ran = java.lang.Math.random
 				var node = new svm_node
 				node.index = j
@@ -90,7 +93,7 @@ object Spamaway {
 		param.kernel_type = svm_parameter.LINEAR	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
 		param.degree = 3
 		param.gamma = 0	// 1/num_features
-		param.gamma = 1.0 / numDimensions	// width of rbf
+		param.gamma = 1.0 / numFeatures // width of rbf
 		param.coef0 = 0
 		param.nu = 0.5
 		param.cache_size = 100
@@ -113,8 +116,22 @@ object Spamaway {
 	}
 	
 	def classify(documents: Array[String]){
-		svm.svm_load_model(model_file_name)
-		println("hello")
+		def getFeatures(doc: String): Array[svm_node] = {
+			//var st: StringTokenizer = new StringTokenizer(doc," \t\n\r\f");
+			var x: Array[svm_node] = new Array[svm_node](numFeatures)
+			for (j <- 0 until numFeatures) {
+				var ran = java.lang.Math.random
+				x(j) = new svm_node
+				x(j).index = j
+				x(j).value = ran.floatValue
+			}
+			return x
+		}
+		var model = svm.svm_load_model(model_file_name)
+		for (doc <- documents){	
+			var v = svm.svm_predict(model, getFeatures(doc))
+			println(v)
+		}
 	}
 
 }
