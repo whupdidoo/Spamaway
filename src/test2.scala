@@ -1,74 +1,132 @@
+
 import libsvm._
 
 import java.io._
-import java.util._
+import scala.collection.immutable.Map
+import scala.collection.mutable.HashMap
+import scala.collection.mutable.Set
+import java.util.regex.Matcher
+import java.util.regex.Pattern
 
 object Spamaway {
-	var model_file_name = "svm_model.blob"
+	var svm_model_file_name = "svm_model.blob"
+	var feature_model_file_name = "features_model.blob"
 	var classes = Array("SPAM", "NOSPAM")
 	var numClasses = classes.length
-	var numTrainVectors = 100
-	var numFeatures = 2
-		
+	var tokenizer: Pattern = Pattern.compile("(\\S+)")
+	var matcher: Matcher = null
+	var feature_space: Array[String] = null
+	
 	def main(args: Array[String]): Unit = {
 		def usage {
 			println("Usage: spamaway train <spamdir> <hamdir>\n or spamaway classify <dir>")
 		}
-		case class Argument(value :String)
-		def action_by_arg(arg: Argument, params: Array[String]){
-			def read_dir(directory: String): Array[String] = {
+		def action_by_arg(arg: String, params: Array[String]){
+			def read_dir(directory: String): Array[(String,String)] = {
 				var dir: File = new File(directory)
-				if(!dir.isDirectory)	{
+				if(!dir.isDirectory) {
 					throw new IllegalArgumentException(directory + " is not a directory");
 				}
-				dir.listFiles.map{f => io.Source.fromFile(f)("iso-8859-1").toString}
+				dir.listFiles.map{f => (f.getName, io.Source.fromFile(f)("iso-8859-1").mkString)}
 			}
 			
-			arg.value match {
+			arg match {
 				case "train" =>
-					//TODO: add scaling (!)
-					train(read_dir(params(0)), read_dir(params(1)))
+					println("training...")
+					train (read_dir(params(0)), read_dir(params(1)))
+					//TODO: add scaling
 				case "classify" => 
-					classify(read_dir(params(0)))
+					println("classifying...")
+					classify (read_dir(params(0)))
 				case _ => usage
 			}
 		}
 		if (args.length < 2)
 			usage
 		else
-			action_by_arg(arg = Argument(args(0)), params = args.slice(1,args.size))
+			action_by_arg(arg = args(0), params = args.slice(1,args.size))
 	}
-	
-	def train(spam: Array[String], ham: Array[String]) {
+		
+	def train(spam: Array[(String,String)], ham: Array[(String,String)]) {
+		var token_space: Set[String] = Set()
+		var spam_counts, ham_counts: HashMap[String, HashMap[String, Int]] = new HashMap[String, HashMap[String, Int]]
+		
+		//build feature space and lists of token counts per document per class 
+		spam.foreach{ doc =>
+			if (!spam_counts.contains(doc._1))
+				spam_counts.put(doc._1, new HashMap[String, Int])
+			count_tokens(doc, spam_counts(doc._1))		
+			token_space ++= spam_counts(doc._1).keys.map{e: String => e.toLowerCase}
+		}
+		
+		ham.foreach{ doc =>
+			if (!ham_counts.contains(doc._1))
+				ham_counts.put(doc._1, new HashMap[String, Int])
+			count_tokens(doc, ham_counts(doc._1))
+			token_space ++= ham_counts(doc._1).keys.map{e: String => e.toLowerCase}
+		}
+		
+		feature_space = token_space.toArray //+ extra features
+		var numTrainVectors = spam.size + ham.size
 		var trainVectors : Array[Array[svm_node]] = new Array(numTrainVectors);
 		var trainVectorClasses : Array[Double] = new Array(numTrainVectors);
+		
+		//fill training vectors
+		var doc: (String, String) = null
+		var currTrainVector: Set[svm_node] = null
+		var node: svm_node = null
+		var doc_counts: HashMap[String, Int] = null
+		
+		for(i <- 0 until spam.size ) {
+			doc = spam(i)
+			doc_counts = spam_counts(doc._1)
+			currTrainVector = Set()
+			trainVectorClasses(i) = classes.indexOf("SPAM")
 
-		for(i <- 0 to numTrainVectors-1)
-		{
-			var currTrainVector = trainVectors(i);
-			currTrainVector = new Array[svm_node](numFeatures)
-			//currTrainVector.indexes = (0 until numTrainVectors-1).toArray
-			// every second item is of the same class [-1, 1]
-			trainVectorClasses(i) = (i % 2)*2-1
-			//currTrainVector = Array.fill(numDimensions){ var ran = java.lang.Math.random; var node = new svm_node; node.index ran.floatValue }
-			for (j <- 0 until numFeatures){
-				var ran = java.lang.Math.random
-				var node = new svm_node
+			var j=0
+			while (j < feature_space.size) {
+				node = new svm_node
 				node.index = j
-				node.value = ran.floatValue
-				currTrainVector(j) = node
+
+				if (doc_counts.contains(feature_space(j))) {
+					node.value = doc_counts(feature_space(j))
+					currTrainVector += node
+				}
+				j += 1
 			}
-			var offset = (i % 2) * 0.9f
-			currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
+			//var offset = (i % 2) * 0.9f
+			//currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
 			//problem.addExample(currTrainVector, trainVectorClasses(i))
-                        trainVectors(i) = currTrainVector
+			trainVectors(i) = currTrainVector.toArray
+		}
+		
+		for(i <- 0 until ham.size ) {
+			doc = ham(i)
+			doc_counts = ham_counts(doc._1)
+			currTrainVector = Set()
+			trainVectorClasses(i) = classes.indexOf("NOSPAM")
+			
+			var j = 0
+			while (j < feature_space.size) {
+				node = new svm_node
+				node.index = j
+
+				if (doc_counts.contains(feature_space(j))) {
+					node.value = doc_counts(feature_space(j))
+					currTrainVector += node
+				}
+				j +=1
+			}
+			//var offset = (i % 2) * 0.9f
+			//currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
+			//problem.addExample(currTrainVector, trainVectorClasses(i))
+			trainVectors(i + spam.size) = currTrainVector.toArray
 		}
 
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
 		prob.x = trainVectors
 		prob.y = trainVectorClasses
-
 
 		//problem.setupLabels();
 /*		var builder : ImmutableSvmParameterPoint.Builder[String, SparseVector] = new ImmutableSvmParameterPoint.Builder
@@ -93,7 +151,7 @@ object Spamaway {
 		param.kernel_type = svm_parameter.LINEAR	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
 		param.degree = 3
 		param.gamma = 0	// 1/num_features
-		param.gamma = 1.0 / numFeatures // width of rbf
+		param.gamma = 1.0 / feature_space.size // width of rbf
 		param.coef0 = 0
 		param.nu = 0.5
 		param.cache_size = 100
@@ -112,25 +170,55 @@ object Spamaway {
 		}
 
 		var model = svm.svm_train(prob, param)
-		svm.svm_save_model(model_file_name, model)
+		svm.svm_save_model(svm_model_file_name, model)
+		
+		var fout: FileOutputStream = new FileOutputStream(feature_model_file_name)
+		var out: ObjectOutputStream = new ObjectOutputStream(fout)
+		out.writeObject(feature_space)
+		fout.close
 	}
 	
-	def classify(documents: Array[String]){
-		def getFeatures(doc: String): Array[svm_node] = {
-			//var st: StringTokenizer = new StringTokenizer(doc," \t\n\r\f");
-			var x: Array[svm_node] = new Array[svm_node](numFeatures)
-			for (j <- 0 until numFeatures) {
-				var ran = java.lang.Math.random
+	def classify(documents: Array[(String, String)]){
+		def getFeatures(doc: (String,String)): Array[svm_node] = {		
+			var counts: HashMap[String,Int] = new HashMap()			
+			count_tokens(doc, counts)
+
+			//create feature vector
+			var x: Array[svm_node] = new Array[svm_node](feature_space.size)
+			for (j <- 0 until feature_space.size) {
 				x(j) = new svm_node
 				x(j).index = j
-				x(j).value = ran.floatValue
+				if (counts.contains(feature_space(j))) {
+					x(j).value = counts(feature_space(j))				
+				}
 			}
 			return x
 		}
-		var model = svm.svm_load_model(model_file_name)
-		for (doc <- documents){	
+		
+		var model = svm.svm_load_model(svm_model_file_name)
+
+		//load feature space model
+		var fin: FileInputStream = new FileInputStream(feature_model_file_name)
+		var in: ObjectInputStream = new ObjectInputStream(fin)
+		feature_space = in.readObject.asInstanceOf[Array[String]]
+		fin.close
+		
+		documents.foreach { doc =>			 
 			var v = svm.svm_predict(model, getFeatures(doc))
-			println(v)
+			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
+		}
+	}
+	
+	def count_tokens(doc: (String, String), counts: HashMap[String, Int]) {
+		var token: String = null
+		matcher = tokenizer.matcher(doc._2)			
+		while(matcher.find){
+			token = matcher.group(1)
+			
+			//var htmlre = "".r
+			//token match 
+			if (counts.contains(token)) counts(token)+=1
+			else counts(token)=1
 		}
 	}
 

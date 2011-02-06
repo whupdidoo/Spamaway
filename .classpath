@@ -1,23 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="src" path="src"/>
-	<classpathentry kind="lib" path="lib/annotations-7.0.3.jar"/>
-	<classpathentry kind="lib" path="lib/collections-generic-4.01.jar"/>
-	<classpathentry kind="lib" path="lib/commons-collections-3.2.jar"/>
-	<classpathentry kind="lib" path="lib/commons-lang-2.1.jar"/>
-	<classpathentry kind="lib" path="lib/commons-logging-1.1.1.jar"/>
-	<classpathentry kind="lib" path="lib/conja-1.02.jar"/>
-	<classpathentry kind="lib" path="lib/dsutils-1.01.jar"/>
-	<classpathentry kind="lib" path="lib/google-collections-1.0-rc2.jar"/>
-	<classpathentry kind="lib" path="lib/jlibsvm-0.902.jar"/>
-	<classpathentry kind="lib" path="lib/JSAP-2.0a-ds1.jar"/>
-	<classpathentry kind="lib" path="lib/log4j-1.2.13.jar"/>
-	<classpathentry kind="lib" path="lib/ml-0.9.jar"/>
-	<classpathentry kind="lib" path="lib/runutils-0.9.jar"/>
-	<classpathentry kind="lib" path="lib/stats-0.9.jar"/>
-	<classpathentry kind="lib" path="lib/trees-1.0.jar"/>
-	<classpathentry kind="lib" path="lib/libsvm.jar"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="con" path="org.scala-ide.sdt.launching.SCALA_CONTAINER"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="lib" path="lib/libsvm.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
