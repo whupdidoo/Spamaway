@@ -51,11 +51,13 @@ object Spamaway {
 		var token_space: Set[String] = Set()
 		var spam_counts, ham_counts: HashMap[String, HashMap[String, Int]] = new HashMap[String, HashMap[String, Int]]
 		
-		//build feature space and lists of token counts per document per class 
+		//build feature space and lists of token counts per document per class
 		spam.foreach{ doc =>
 			if (!spam_counts.contains(doc._1))
 				spam_counts.put(doc._1, new HashMap[String, Int])
-			count_tokens(doc, spam_counts(doc._1))		
+			// add all tokens in this document to local token set "spam_counts(doc._1)"
+			count_tokens(doc, spam_counts(doc._1))
+			// add all tokens in this document to global token set "token_space"
 			token_space ++= spam_counts(doc._1).keys.map{e: String => e.toLowerCase}
 		}
 		
@@ -122,6 +124,10 @@ object Spamaway {
 			//problem.addExample(currTrainVector, trainVectorClasses(i))
 			trainVectors(i + spam.size) = currTrainVector.toArray
 		}
+		
+		// scale each dimeansion to [0..1]
+		var extremaForeEachDimension : (Array[Double], Array[Double]) = scaleTrainVectors(trainVectors, feature_space.length);
+		// TODO: save extrema to file, for later scaling of test data? or just call scaleData(testVectors, extremaForeEachDimension._1, extremaForeEachDimension._2) if extremaForEachDimension are still available in RAM
 
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
@@ -222,4 +228,33 @@ object Spamaway {
 		}
 	}
 
+	def scaleTrainVectors(trainVectors : Array[Array[svm_node]], numDimensions : Int) : (Array[Double], Array[Double]) =
+	{
+		var minima : Array[Double] = Array.fill(numDimensions){java.lang.Double.MAX_VALUE}
+		var maxima : Array[Double] = Array.fill(numDimensions){- java.lang.Double.MAX_VALUE}
+		// find minima and maxima for each dimension
+		trainVectors.foreach{trainVector : Array[svm_node] =>
+			trainVector.foreach{svmnode : svm_node =>
+				if(svmnode.value < minima(svmnode.index))
+					minima(svmnode.index) = svmnode.value
+				if(svmnode.value > maxima(svmnode.index))
+					maxima(svmnode.index) = svmnode.value
+			}
+		}
+		scaleData(trainVectors, minima, maxima)
+		return (minima, maxima)
+	}
+	
+	def scaleData(dataVectors : Array[Array[svm_node]], minima : Array[Double], maxima : Array[Double])
+	{
+		// apply linear scaling to [0..1] for each dimension: x_scaled = (x_nonscaled-min)/(max-min)
+		dataVectors.foreach{dataVector : Array[svm_node] =>
+			dataVector.foreach{svmnode : svm_node =>
+			if(maxima(svmnode.index) == minima(svmnode.index))
+				svmnode.value = 0.0	// this feature is useless, there is no variance. do not perform scaling to avoid division by 0
+			else
+				svmnode.value = (svmnode.value - minima(svmnode.index))/(maxima(svmnode.index) - minima(svmnode.index))
+			}
+		}
+	}
 }
