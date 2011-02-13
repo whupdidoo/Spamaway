@@ -34,7 +34,6 @@ object Spamaway {
 				case "train" =>
 					println("training...")
 					train (read_dir(params(0)), read_dir(params(1)))
-					//TODO: add scaling
 				case "classify" => 
 					println("classifying...")
 					classify (read_dir(params(0)))
@@ -174,6 +173,17 @@ object Spamaway {
 		if(error_msg != null) {
 			println("ParamCheckError: "+error_msg+"\n")
 		}
+		
+		// 10-fold cross validation
+		println("performing 10-fold cross validation...");
+		var crossValidationPredictions = new Array[Double](numTrainVectors)	// CV-results are stored here
+		svm.svm_cross_validation(prob,param,10,crossValidationPredictions)
+		var total_correct = 0;
+		for(i <- 0 until numTrainVectors)
+				if(crossValidationPredictions(i) == prob.y(i))
+					total_correct = total_correct+1;
+		println("Cross Validation Accuracy = "+100.0*total_correct/numTrainVectors+"%");
+		println("training on whole training set")
 
 		var model = svm.svm_train(prob, param)
 		svm.svm_save_model(svm_model_file_name, model)
