@@ -202,15 +202,16 @@ object Spamaway {
 			count_tokens(doc, counts)
 
 			//create feature vector
-			var x: Array[svm_node] = new Array[svm_node](feature_space.size)
+			var x: Set[svm_node] = Set()
 			for (j <- 0 until feature_space.size) {
-				x(j) = new svm_node
-				x(j).index = j
 				if (counts.contains(feature_space(j))) {
-					x(j).value = counts(feature_space(j))				
+					var n = new svm_node 
+					n.value = counts(feature_space(j))
+					n.index = j
+					x.add(n)
 				}
 			}
-			return x
+			return x.toArray
 		}
 		
 		var model = svm.svm_load_model(svm_model_file_name)
@@ -221,9 +222,11 @@ object Spamaway {
 		feature_space = in.readObject.asInstanceOf[Array[String]]
 		scale_factors = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
 		fin.close
-		
-		documents.foreach { doc =>			 
-			var v = svm.svm_predict(model, getFeatures(doc))
+			
+		documents.foreach { doc =>
+			var features = getFeatures(doc)		
+			scaleData(Array(features), scale_factors._1, scale_factors._2)
+			var v = svm.svm_predict(model, features)
 			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
 		}
 	}
