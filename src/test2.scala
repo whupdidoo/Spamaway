@@ -16,6 +16,7 @@ object Spamaway {
 	var tokenizer: Pattern = Pattern.compile("(\\S+)")
 	var matcher: Matcher = null
 	var feature_space: Array[String] = null
+	var scale_factors : (Array[Double], Array[Double]) = null
 	
 	def main(args: Array[String]): Unit = {
 		def usage {
@@ -79,11 +80,12 @@ object Spamaway {
 		var node: svm_node = null
 		var doc_counts: HashMap[String, Int] = null
 		
+		//TODO: remove duplication
 		for(i <- 0 until spam.size ) {
 			doc = spam(i)
 			doc_counts = spam_counts(doc._1)
 			currTrainVector = Set()
-			trainVectorClasses(i) = classes.indexOf("SPAM")
+			trainVectorClasses(i) = classes.indexOf("SPAM") //should better be -1, to make classes be further apart
 
 			var j=0
 			while (j < feature_space.size) {
@@ -125,9 +127,8 @@ object Spamaway {
 			trainVectors(i + spam.size) = currTrainVector.toArray
 		}
 		
-		// scale each dimeansion to [0..1]
-		var extremaForeEachDimension : (Array[Double], Array[Double]) = scaleTrainVectors(trainVectors, feature_space.length);
-		// TODO: save extrema to file, for later scaling of test data? or just call scaleData(testVectors, extremaForeEachDimension._1, extremaForeEachDimension._2) if extremaForEachDimension are still available in RAM
+		// scale each dimension to [0..1]
+		scale_factors = scaleTrainVectors(trainVectors, feature_space.length)
 
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
@@ -156,7 +157,6 @@ object Spamaway {
 		param.svm_type = svm_parameter.C_SVC	// needs no params as i see it...
 		param.kernel_type = svm_parameter.LINEAR	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
 		param.degree = 3
-		param.gamma = 0	// 1/num_features
 		param.gamma = 1.0 / feature_space.size // width of rbf
 		param.coef0 = 0
 		param.nu = 0.5
@@ -178,9 +178,11 @@ object Spamaway {
 		var model = svm.svm_train(prob, param)
 		svm.svm_save_model(svm_model_file_name, model)
 		
+		//write extra data
 		var fout: FileOutputStream = new FileOutputStream(feature_model_file_name)
 		var out: ObjectOutputStream = new ObjectOutputStream(fout)
 		out.writeObject(feature_space)
+		out.writeObject(scale_factors)
 		fout.close
 	}
 	
@@ -207,6 +209,7 @@ object Spamaway {
 		var fin: FileInputStream = new FileInputStream(feature_model_file_name)
 		var in: ObjectInputStream = new ObjectInputStream(fin)
 		feature_space = in.readObject.asInstanceOf[Array[String]]
+		scale_factors = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
 		fin.close
 		
 		documents.foreach { doc =>			 
