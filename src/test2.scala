@@ -175,16 +175,17 @@ object Spamaway {
 		}
 		
 		// 10-fold cross validation
-		println("performing 10-fold cross validation...");
+		/*
+		println("performing 10-fold cross validation...")
 		var crossValidationPredictions = new Array[Double](numTrainVectors)	// CV-results are stored here
 		svm.svm_cross_validation(prob,param,10,crossValidationPredictions)
 		var total_correct = 0;
 		for(i <- 0 until numTrainVectors)
 				if(crossValidationPredictions(i) == prob.y(i))
-					total_correct = total_correct+1;
-		println("Cross Validation Accuracy = "+100.0*total_correct/numTrainVectors+"%");
+					total_correct = total_correct+1
+		println("Cross Validation Accuracy = "+100.0*total_correct/numTrainVectors+"%")
+		*/
 		println("training on whole training set")
-
 		var model = svm.svm_train(prob, param)
 		svm.svm_save_model(svm_model_file_name, model)
 		
@@ -222,6 +223,14 @@ object Spamaway {
 		scale_factors = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
 		fin.close
 		
+		var extractedFeatures : Array[Array[svm_node]] = new Array(documents.size)
+		for(i <- 0 until documents.size)
+		{
+			extractedFeatures(i) = getFeatures(documents(i))
+		}
+		
+		scaleData(extractedFeatures, scale_factors._1, scale_factors._2)	// this is imperative style, i know... better: extractedFeatures.map(scaleData)
+		
 		documents.foreach { doc =>			 
 			var v = svm.svm_predict(model, getFeatures(doc))
 			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
@@ -230,7 +239,7 @@ object Spamaway {
 	
 	def count_tokens(doc: (String, String), counts: HashMap[String, Int]) {
 		var token: String = null
-		matcher = tokenizer.matcher(doc._2)			
+		matcher = tokenizer.matcher(doc._2)
 		while(matcher.find){
 			token = matcher.group(1)
 			
@@ -254,6 +263,13 @@ object Spamaway {
 					maxima(svmnode.index) = svmnode.value
 			}
 		}
+		var numUselessFeatures = 0
+		for(i <- 0 until numDimensions)
+		{
+			if(minima(i) == maxima(i))
+				numUselessFeatures += 1
+		}
+		println("percentage of useless features: " + 100.0*numUselessFeatures/numDimensions+"%")
 		scaleData(trainVectors, minima, maxima)
 		return (minima, maxima)
 	}
