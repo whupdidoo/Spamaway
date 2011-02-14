@@ -14,6 +14,10 @@ class FeatureSpace extends serializable {
 	var token_hashmap : HashMap[String, Int] = null
 	var scaling: (Array[Double], Array[Double]) = null
 	var pattern = Pattern.compile("(\\S+)")
+	var special_chars_count = Array(0.0)
+	var is_html = Array(0.0)
+	var case_ratio = Array(0.0)
+	var size = 0
 	
 	def extract_token_features(body: String): Array[Double] = {
 		var features : Array[Double] = new Array(token_space.size)
@@ -40,16 +44,21 @@ class FeatureSpace extends serializable {
 		// TODO
 		return Array()
 	}
+	
+	def extract_special_chars(body: String): Array[Double] =
+		Array("[!$&%]".r.findAllIn(body).length)
 
+	def extract_is_html(body: String): Array[Double] =
+		Array("(?i)<a href".r.findAllIn(body).length)
+	
+	def extract_case_ratio(body: String): Array[Double] =
+		Array("[A-Z]".r.findAllIn(body).length / body.length)
+		
 	def get_feature(index: Int): String = {
 		if (index >= header_space.size)
 			return token_space(index)
 		else
 			return header_space(index)
-	}
-	
-	def size: Int = {
-		header_space.size + token_space.size
 	}
 }
 
@@ -65,7 +74,7 @@ object Spamaway {
 	
 	def main(args: Array[String]): Unit = {
 		def usage {
-			println("Usage: spamaway train <spamdir> <hamdir>\n or spamaway classify <dir>")
+			println("Usage: spamaway learn <spamdir> <hamdir>\n or spamaway classify <dir>")
 		}
 		def action_by_arg(arg: String, params: Array[String]){
 			def read_dir(directory: String): Array[(String,String)] = {
@@ -77,7 +86,7 @@ object Spamaway {
 			}
 			
 			arg match {
-				case "train" =>
+				case "learn" =>
 					println("training...")
 					var performCrossValidation = (params.size == 3 && params(2).toLowerCase().equals("cv"))
 					train (read_dir(params(0)), read_dir(params(1)), performCrossValidation)
@@ -110,6 +119,7 @@ object Spamaway {
 		feature_space.token_space = tokens.toArray
 
 		// TODO: build header space
+		feature_space.header_space = Array()
 		//feature_space.header_space_received = Array()
 		//feature_space.header_space_from = Array()
 		
@@ -148,13 +158,13 @@ object Spamaway {
 		var param = builder.build*/
 		var param : svm_parameter = new svm_parameter
 		// default values
-		param.svm_type = svm_parameter.C_SVC	// needs no params as i see it...
-		param.kernel_type = svm_parameter.LINEAR	//0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
+		param.svm_type = svm_parameter.C_SVC
+		param.kernel_type = svm_parameter.LINEAR //0 -- linear: u'*v 1 -- polynomial: (gamma*u'*v + coef0)^degree	2 -- radial basis function: exp(-gamma*|u-v|^2)	3 -- sigmoid: tanh(gamma*u'*v + coef0)
 		param.degree = 3
 		param.gamma = 1.0 / feature_space.size // width of rbf
 		param.coef0 = 0
 		param.nu = 0.5
-		param.cache_size = 100
+		param.cache_size = 150
 		param.C = 1
 		param.eps = 1e-3
 		param.p = 0.1
@@ -232,9 +242,18 @@ object Spamaway {
 	def getFeatures(doc: (String,String)): Array[svm_node] = {
 		var (header, body) = decapitate(doc._2)
 		// create dense feature vector
-		var featureVector : Array[Double] =	feature_space.extract_header_features(header) ++ feature_space.extract_token_features(body)
+		var featureVector : Array[Double] = (
+			  feature_space.extract_header_features(header)
+			  ++ feature_space.extract_token_features(body)
+			  ++ feature_space.extract_special_chars(body)
+			  ++ feature_space.extract_is_html(body)
+			  ++ feature_space.extract_case_ratio(body)
+			)
+			
+		if (feature_space.size == 0)
+			feature_space.size = featureVector.size
+			
 		// convert dense vector to sparse vector
-
 		var trainVector : Array[svm_node] = Array()
 		var i = 0;
 		while(i < featureVector.size)
@@ -279,13 +298,7 @@ object Spamaway {
 					maxima(svmnode.index) = svmnode.value
 			}
 		}
-		var numUselessFeatures = 0
-		for(i <- 0 until numDimensions)
-		{
-			if(minima(i) == maxima(i))
-				numUselessFeatures += 1
-		}
-		println("percentage of useless features: " + 100.0*numUselessFeatures/numDimensions+"%")
+		
 		scaleData(trainVectors, minima, maxima)
 		return (minima, maxima)
 	}
