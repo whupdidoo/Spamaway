@@ -8,42 +8,48 @@ import scala.collection.mutable.Set
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
-class FeatureSpace {
-	var header_list: Array[String] = null
+class FeatureSpace extends serializable {
+	var header_space: Array[String] = null
 	var token_space: Array[String] = null
+	var token_hashmap : HashMap[String, Int] = null
 	var scaling: (Array[Double], Array[Double]) = null
-
+	var pattern = Pattern.compile("(\\S+)")
+	
 	def extract_token_features(body: String): Array[Double] = {
 		var features : Array[Double] = new Array(token_space.size)
+
 		// hashmap for faster access
-		var token_hashmap : HashMap[String, Int] = new HashMap[String, Int]()
-		for(i <- 0 until token_space.size)
-			token_hashmap(token_space(i)) = i
+		if (token_hashmap == null){
+			token_hashmap = new HashMap[String, Int]()
+			for(i <- 0 until token_space.size)
+				token_hashmap(token_space(i)) = i
+		}
 		var token: String = null
-		matcher = Pattern.compile("(\\S+)").matcher(body)
+		var matcher = pattern.matcher(body)
+		
 		while(matcher.find){
 			token = matcher.group(1)
-			var feature_index = token_hashmap(token)
-			if(feature_index != null)
-				features(feature_index) += 1
+			var feature_index = token_hashmap.get(token)
+			if(feature_index != None)
+				features(feature_index.get) = features(feature_index.get) + 1
 		}
 		return features
 	}
 
-	def extract_header_features
-	{
-
+	def extract_header_features(headerSystem : String) : Array[Double] = {
+		// TODO
+		return Array()
 	}
 
 	def get_feature(index: Int): String = {
-		if (index >= header_list.size)
-			return token_list(index)
+		if (index >= header_space.size)
+			return token_space(index)
 		else
-			return header_list(index)
+			return header_space(index)
 	}
 	
 	def size: Int = {
-		header_list.size + token_list.size
+		header_space.size + token_space.size
 	}
 }
 
@@ -73,7 +79,7 @@ object Spamaway {
 			arg match {
 				case "train" =>
 					println("training...")
-					performCrossValidation = (params.size == 3 && params(3).toLowerCase().equals("cv"))
+					var performCrossValidation = (params.size == 3 && params(2).toLowerCase().equals("cv"))
 					train (read_dir(params(0)), read_dir(params(1)), performCrossValidation)
 				case "classify" => 
 					println("classifying...")
@@ -93,41 +99,31 @@ object Spamaway {
 		//build token space
 		Array.concat(spam, ham).foreach{ doc =>
 			matcher = tokenizer.matcher(doc._2)
+			var token: String = null
 			while(matcher.find){
 				token = matcher.group(1)
 				tokens += token
 			}
 		}
 
-		var feature_space = new FeatureSpace
+		feature_space = new FeatureSpace
 		feature_space.token_space = tokens.toArray
 
 		// TODO: build header space
-		var trainVectors : Array[Array[svm_node]] = new Array()
-		var trainVectorClasses = Array.fill(spam.size)(0) ++ Array.fill(ham.size)(1)
-		(spam ++ ham).map{doc =>
-			var (header, body) = decapitate(doc)
-			var featureVector : Array[Double] =	feature_space.extract_header_features(header)
-				++ feature_space.extract_token_features(body)
-			var trainVector : Array[svm_node] = new Array()
-			var i = 0;
-			while(i < featureVector.size)
-			{
-				if(featureVector(i) != 0.0)
-				{
-					var node = new svm_node
-					node.index = i
-					node.value = featureVector(i)
-					trainVector += node
-				}
-			}
-			trainVectors += trainVector
+		//feature_space.header_space_received = Array()
+		//feature_space.header_space_from = Array()
+		
+		var trainVectors : Array[Array[svm_node]] = Array()		
+		Array.concat(spam, ham).foreach{doc =>
+			trainVectors = trainVectors :+ getFeatures(doc)
 		}
+		var trainVectorClasses : Array[Double] = Array.fill(spam.size)(0.0) ++ Array.fill(ham.size)(1.0)
 		
 		// scale each dimension to [0..1]
 		scale_factors = scaleTrainVectors(trainVectors, feature_space.size)
 		feature_space.scaling = scale_factors
 
+		var numTrainVectors = trainVectors.size
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
 		prob.x = trainVectors
@@ -192,55 +188,67 @@ object Spamaway {
 		//write extra data
 		var fout: FileOutputStream = new FileOutputStream(feature_model_file_name)
 		var out: ObjectOutputStream = new ObjectOutputStream(fout)
-		out.writeObject(feature_space)
+		out.writeObject(feature_space.header_space)
+		out.writeObject(feature_space.token_space)
+		out.writeObject(feature_space.scaling)
 		fout.close
 	}
 	
 	def classify(documents: Array[(String, String)]){
-		def getFeatures(doc: (String,String)): Array[svm_node] = {
-			var counts: HashMap[String,Int] = new HashMap()
-			count_tokens(doc, counts)
-
-			//create feature vector
-			var x: Set[svm_node] = Set()
-			for (j <- 0 until feature_space.size) {
-				if (counts.contains(feature_space.get_feature(j))) {
-					var n = new svm_node 
-					n.value = counts(feature_space.get_feature(j))
-					n.index = j
-					x.add(n)
-				}
-			}
-			return x.toArray
-		}
 		
 		var model = svm.svm_load_model(svm_model_file_name)
 
 		//load feature space model
 		var fin: FileInputStream = new FileInputStream(feature_model_file_name)
 		var in: ObjectInputStream = new ObjectInputStream(fin)
-		feature_space.header_list = in.readObject.asInstanceOf[Array[String]]
-		feature_space.token_list = in.readObject.asInstanceOf[Array[String]]
-		scale_factors = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
+		
+		feature_space.header_space = in.readObject.asInstanceOf[Array[String]]
+		feature_space.token_space = in.readObject.asInstanceOf[Array[String]]
+		feature_space.scaling = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
+		
 		fin.close
 			
 		documents.foreach { doc =>
-			var features = getFeatures(doc)		
-			scaleData(Array(features), scale_factors._1, scale_factors._2)
+			var features = getFeatures(doc)
+			scaleData(Array(features), feature_space.scaling._1, feature_space.scaling._2)
 			var v = svm.svm_predict(model, features)
 			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
 		}
 	}
 
 	def decapitate(doc : String): (String, String) = {
-		var matcher : Matcher = Pattern.compile("(.+)\\r?\\n\\r?\\n(.+)").matcher
+		//var matcher : Matcher = Pattern.compile("(.+?)\\r?\\n\\r?\\n(.+)").matcher(doc)
+		var matcher : Matcher = Pattern.compile("\\r?\\n\\r?\\n").matcher(doc)
 		if(matcher.find){
-			var header : String = matcher.group(1)
-			var body : String = matcher.group(2)
+			var header : String = doc.substring(0, matcher.start)
+			var body : String = doc.substring(matcher.end, doc.size)
 			return (header, body)
 		}
-		throw new IllegalArgumentException("no email header / body found")
+		println(doc)
+		throw new IllegalArgumentException("Wrong format: no email header / body found")
 		return null
+	}
+	
+	def getFeatures(doc: (String,String)): Array[svm_node] = {
+		var (header, body) = decapitate(doc._2)
+		// create dense feature vector
+		var featureVector : Array[Double] =	feature_space.extract_header_features(header) ++ feature_space.extract_token_features(body)
+		// convert dense vector to sparse vector
+
+		var trainVector : Array[svm_node] = Array()
+		var i = 0;
+		while(i < featureVector.size)
+		{
+			if(featureVector(i) != 0.0)
+			{
+				var node = new svm_node
+				node.index = i
+				node.value = featureVector(i)
+				trainVector = trainVector :+ node
+			}
+			i += 1
+		}
+		return trainVector
 	}
 
 	/*
