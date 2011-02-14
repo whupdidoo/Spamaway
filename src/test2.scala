@@ -8,6 +8,22 @@ import scala.collection.mutable.Set
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
+class FeatureSpace {
+	var header_list: Array[String] = Array()
+	var token_list: Array[String] = Array()
+	
+	def get_feature(index: Int): String = {
+		if (index >= header_list.size)
+			return token_list(index)
+		else
+			return header_list(index)
+	}
+	
+	def size: Int = {
+		header_list.size + token_list.size
+	}
+}
+
 object Spamaway {
 	var svm_model_file_name = "svm_model.blob"
 	var feature_model_file_name = "features_model.blob"
@@ -15,7 +31,7 @@ object Spamaway {
 	var numClasses = classes.length
 	var tokenizer: Pattern = Pattern.compile("(\\S+)")
 	var matcher: Matcher = null
-	var feature_space: Array[String] = null
+	var feature_space: FeatureSpace = new FeatureSpace
 	var scale_factors : (Array[Double], Array[Double]) = null
 	
 	def main(args: Array[String]): Unit = {
@@ -68,7 +84,7 @@ object Spamaway {
 			token_space ++= ham_counts(doc._1).keys.map{e: String => e.toLowerCase}
 		}
 		
-		feature_space = token_space.toArray //+ extra features
+		feature_space.token_list = token_space.toArray //+ extra features
 		var numTrainVectors = spam.size + ham.size
 		var trainVectors : Array[Array[svm_node]] = new Array(numTrainVectors);
 		var trainVectorClasses : Array[Double] = new Array(numTrainVectors);
@@ -86,13 +102,13 @@ object Spamaway {
 			currTrainVector = Set()
 			trainVectorClasses(i) = classes.indexOf("SPAM") //should better be -1, to make classes be further apart
 
-			var j=0
+			var j=feature_space.header_list.size
 			while (j < feature_space.size) {
 				node = new svm_node
 				node.index = j
 
-				if (doc_counts.contains(feature_space(j))) {
-					node.value = doc_counts(feature_space(j))
+				if (doc_counts.contains(feature_space.get_feature(j))) {
+					node.value = doc_counts(feature_space.get_feature(j))
 					currTrainVector += node
 				}
 				j += 1
@@ -109,16 +125,16 @@ object Spamaway {
 			currTrainVector = Set()
 			trainVectorClasses(i) = classes.indexOf("NOSPAM")
 			
-			var j = 0
+			var j=feature_space.header_list.size
 			while (j < feature_space.size) {
 				node = new svm_node
 				node.index = j
 
-				if (doc_counts.contains(feature_space(j))) {
-					node.value = doc_counts(feature_space(j))
+				if (doc_counts.contains(feature_space.get_feature(j))) {
+					node.value = doc_counts(feature_space.get_feature(j))
 					currTrainVector += node
 				}
-				j +=1
+				j += 1
 			}
 			//var offset = (i % 2) * 0.9f
 			//currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
@@ -127,7 +143,7 @@ object Spamaway {
 		}
 		
 		// scale each dimension to [0..1]
-		scale_factors = scaleTrainVectors(trainVectors, feature_space.length)
+		scale_factors = scaleTrainVectors(trainVectors, feature_space.size)
 
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
@@ -192,7 +208,8 @@ object Spamaway {
 		//write extra data
 		var fout: FileOutputStream = new FileOutputStream(feature_model_file_name)
 		var out: ObjectOutputStream = new ObjectOutputStream(fout)
-		out.writeObject(feature_space)
+		out.writeObject(feature_space.header_list)
+		out.writeObject(feature_space.token_list)
 		out.writeObject(scale_factors)
 		fout.close
 	}
@@ -203,15 +220,16 @@ object Spamaway {
 			count_tokens(doc, counts)
 
 			//create feature vector
-			var x: Array[svm_node] = new Array[svm_node](feature_space.size)
+			var x: Set[svm_node] = Set()
 			for (j <- 0 until feature_space.size) {
-				x(j) = new svm_node
-				x(j).index = j
-				if (counts.contains(feature_space(j))) {
-					x(j).value = counts(feature_space(j))				
+				if (counts.contains(feature_space.get_feature(j))) {
+					var n = new svm_node 
+					n.value = counts(feature_space.get_feature(j))
+					n.index = j
+					x.add(n)
 				}
 			}
-			return x
+			return x.toArray
 		}
 		
 		var model = svm.svm_load_model(svm_model_file_name)
@@ -219,20 +237,15 @@ object Spamaway {
 		//load feature space model
 		var fin: FileInputStream = new FileInputStream(feature_model_file_name)
 		var in: ObjectInputStream = new ObjectInputStream(fin)
-		feature_space = in.readObject.asInstanceOf[Array[String]]
+		feature_space.header_list = in.readObject.asInstanceOf[Array[String]]
+		feature_space.token_list = in.readObject.asInstanceOf[Array[String]]
 		scale_factors = in.readObject.asInstanceOf[(Array[Double], Array[Double])]
 		fin.close
-		
-		var extractedFeatures : Array[Array[svm_node]] = new Array(documents.size)
-		for(i <- 0 until documents.size)
-		{
-			extractedFeatures(i) = getFeatures(documents(i))
-		}
-		
-		scaleData(extractedFeatures, scale_factors._1, scale_factors._2)	// this is imperative style, i know... better: extractedFeatures.map(scaleData)
-		
-		documents.foreach { doc =>			 
-			var v = svm.svm_predict(model, getFeatures(doc))
+			
+		documents.foreach { doc =>
+			var features = getFeatures(doc)		
+			scaleData(Array(features), scale_factors._1, scale_factors._2)
+			var v = svm.svm_predict(model, features)
 			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
 		}
 	}
