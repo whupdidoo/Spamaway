@@ -9,9 +9,32 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 class FeatureSpace {
-	var header_list: Array[String] = Array()
-	var token_list: Array[String] = Array()
-	
+	var header_list: Array[String] = null
+	var token_space: Array[String] = null
+	var scaling: (Array[Double], Array[Double]) = null
+
+	def extract_token_features(body: String): Array[Double] = {
+		var features : Array[Double] = new Array(token_space.size)
+		// hashmap for faster access
+		var token_hashmap : HashMap[String, Int] = new HashMap[String, Int]()
+		for(i <- 0 until token_space.size)
+			token_hashmap(token_space(i)) = i
+		var token: String = null
+		matcher = Pattern.compile("(\\S+)").matcher(body)
+		while(matcher.find){
+			token = matcher.group(1)
+			var feature_index = token_hashmap(token)
+			if(feature_index != null)
+				features(feature_index) += 1
+		}
+		return features
+	}
+
+	def extract_header_features
+	{
+
+	}
+
 	def get_feature(index: Int): String = {
 		if (index >= header_list.size)
 			return token_list(index)
@@ -50,7 +73,8 @@ object Spamaway {
 			arg match {
 				case "train" =>
 					println("training...")
-					train (read_dir(params(0)), read_dir(params(1)))
+					performCrossValidation = (params.size == 3 && params(3).toLowerCase().equals("cv"))
+					train (read_dir(params(0)), read_dir(params(1)), performCrossValidation)
 				case "classify" => 
 					println("classifying...")
 					classify (read_dir(params(0)))
@@ -63,87 +87,46 @@ object Spamaway {
 			action_by_arg(arg = args(0), params = args.slice(1,args.size))
 	}
 		
-	def train(spam: Array[(String,String)], ham: Array[(String,String)]) {
-		var token_space: Set[String] = Set()
-		var spam_counts, ham_counts: HashMap[String, HashMap[String, Int]] = new HashMap[String, HashMap[String, Int]]
+	def train(spam: Array[(String,String)], ham: Array[(String,String)], performCrossValidation : Boolean) {
+		var tokens: Set[String] = Set()
 		
-		//build feature space and lists of token counts per document per class
-		spam.foreach{ doc =>
-			if (!spam_counts.contains(doc._1))
-				spam_counts.put(doc._1, new HashMap[String, Int])
-			// add all tokens in this document to local token set "spam_counts(doc._1)"
-			count_tokens(doc, spam_counts(doc._1))
-			// add all tokens in this document to global token set "token_space"
-			token_space ++= spam_counts(doc._1).keys.map{e: String => e.toLowerCase}
-		}
-		
-		ham.foreach{ doc =>
-			if (!ham_counts.contains(doc._1))
-				ham_counts.put(doc._1, new HashMap[String, Int])
-			count_tokens(doc, ham_counts(doc._1))
-			token_space ++= ham_counts(doc._1).keys.map{e: String => e.toLowerCase}
-		}
-		
-		feature_space.token_list = token_space.toArray //+ extra features
-		var numTrainVectors = spam.size + ham.size
-		var trainVectors : Array[Array[svm_node]] = new Array(numTrainVectors);
-		var trainVectorClasses : Array[Double] = new Array(numTrainVectors);
-		
-		//fill training vectors
-		var doc: (String, String) = null
-		var currTrainVector: Set[svm_node] = null
-		var node: svm_node = null
-		var doc_counts: HashMap[String, Int] = null
-		
-		//TODO: remove duplication
-		for(i <- 0 until spam.size ) {
-			doc = spam(i)
-			doc_counts = spam_counts(doc._1)
-			currTrainVector = Set()
-			trainVectorClasses(i) = classes.indexOf("SPAM") //should better be -1, to make classes be further apart
-
-			var j=feature_space.header_list.size
-			while (j < feature_space.size) {
-				node = new svm_node
-				node.index = j
-
-				if (doc_counts.contains(feature_space.get_feature(j))) {
-					node.value = doc_counts(feature_space.get_feature(j))
-					currTrainVector += node
-				}
-				j += 1
+		//build token space
+		Array.concat(spam, ham).foreach{ doc =>
+			matcher = tokenizer.matcher(doc._2)
+			while(matcher.find){
+				token = matcher.group(1)
+				tokens += token
 			}
-			//var offset = (i % 2) * 0.9f
-			//currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
-			//problem.addExample(currTrainVector, trainVectorClasses(i))
-			trainVectors(i) = currTrainVector.toArray
 		}
-		
-		for(i <- 0 until ham.size ) {
-			doc = ham(i)
-			doc_counts = ham_counts(doc._1)
-			currTrainVector = Set()
-			trainVectorClasses(i) = classes.indexOf("NOSPAM")
-			
-			var j=feature_space.header_list.size
-			while (j < feature_space.size) {
-				node = new svm_node
-				node.index = j
 
-				if (doc_counts.contains(feature_space.get_feature(j))) {
-					node.value = doc_counts(feature_space.get_feature(j))
-					currTrainVector += node
+		var feature_space = new FeatureSpace
+		feature_space.token_space = tokens.toArray
+
+		// TODO: build header space
+		var trainVectors : Array[Array[svm_node]] = new Array()
+		var trainVectorClasses = Array.fill(spam.size)(0) ++ Array.fill(ham.size)(1)
+		(spam ++ ham).map{doc =>
+			var (header, body) = decapitate(doc)
+			var featureVector : Array[Double] =	feature_space.extract_header_features(header)
+				++ feature_space.extract_token_features(body)
+			var trainVector : Array[svm_node] = new Array()
+			var i = 0;
+			while(i < featureVector.size)
+			{
+				if(featureVector(i) != 0.0)
+				{
+					var node = new svm_node
+					node.index = i
+					node.value = featureVector(i)
+					trainVector += node
 				}
-				j += 1
 			}
-			//var offset = (i % 2) * 0.9f
-			//currTrainVector(0).value += offset	// so that classes are separable, with 10% overlap
-			//problem.addExample(currTrainVector, trainVectorClasses(i))
-			trainVectors(i + spam.size) = currTrainVector.toArray
+			trainVectors += trainVector
 		}
 		
 		// scale each dimension to [0..1]
 		scale_factors = scaleTrainVectors(trainVectors, feature_space.size)
+		feature_space.scaling = scale_factors
 
 		var prob = new svm_problem()
 		prob.l = numTrainVectors
@@ -189,18 +172,19 @@ object Spamaway {
 		if(error_msg != null) {
 			println("ParamCheckError: "+error_msg+"\n")
 		}
+
+		if(performCrossValidation)
+		{
+			println("performing 10-fold cross validation...")
+			var crossValidationPredictions = new Array[Double](numTrainVectors)	// CV-results are stored here
+			svm.svm_cross_validation(prob,param,10,crossValidationPredictions)
+			var total_correct = 0;
+			for(i <- 0 until numTrainVectors)
+					if(crossValidationPredictions(i) == prob.y(i))
+						total_correct = total_correct+1
+			println("Cross Validation Accuracy = "+100.0*total_correct/numTrainVectors+"%")
+		}
 		
-		// 10-fold cross validation
-		/*
-		println("performing 10-fold cross validation...")
-		var crossValidationPredictions = new Array[Double](numTrainVectors)	// CV-results are stored here
-		svm.svm_cross_validation(prob,param,10,crossValidationPredictions)
-		var total_correct = 0;
-		for(i <- 0 until numTrainVectors)
-				if(crossValidationPredictions(i) == prob.y(i))
-					total_correct = total_correct+1
-		println("Cross Validation Accuracy = "+100.0*total_correct/numTrainVectors+"%")
-		*/
 		println("training on whole training set")
 		var model = svm.svm_train(prob, param)
 		svm.svm_save_model(svm_model_file_name, model)
@@ -208,15 +192,13 @@ object Spamaway {
 		//write extra data
 		var fout: FileOutputStream = new FileOutputStream(feature_model_file_name)
 		var out: ObjectOutputStream = new ObjectOutputStream(fout)
-		out.writeObject(feature_space.header_list)
-		out.writeObject(feature_space.token_list)
-		out.writeObject(scale_factors)
+		out.writeObject(feature_space)
 		fout.close
 	}
 	
 	def classify(documents: Array[(String, String)]){
-		def getFeatures(doc: (String,String)): Array[svm_node] = {		
-			var counts: HashMap[String,Int] = new HashMap()			
+		def getFeatures(doc: (String,String)): Array[svm_node] = {
+			var counts: HashMap[String,Int] = new HashMap()
 			count_tokens(doc, counts)
 
 			//create feature vector
@@ -249,7 +231,19 @@ object Spamaway {
 			println("%s %s".format(doc._1, classes((v.toInt+1)/2)))
 		}
 	}
-	
+
+	def decapitate(doc : String): (String, String) = {
+		var matcher : Matcher = Pattern.compile("(.+)\\r?\\n\\r?\\n(.+)").matcher
+		if(matcher.find){
+			var header : String = matcher.group(1)
+			var body : String = matcher.group(2)
+			return (header, body)
+		}
+		throw new IllegalArgumentException("no email header / body found")
+		return null
+	}
+
+	/*
 	def count_tokens(doc: (String, String), counts: HashMap[String, Int]) {
 		var token: String = null
 		matcher = tokenizer.matcher(doc._2)
@@ -262,6 +256,7 @@ object Spamaway {
 			else counts(token)=1
 		}
 	}
+	*/
 
 	def scaleTrainVectors(trainVectors : Array[Array[svm_node]], numDimensions : Int) : (Array[Double], Array[Double]) =
 	{
